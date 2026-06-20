@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reyser Suite Kamakura — BGM System</title>
+<meta name="description" content="Reyser Suite Kamakura 自動BGMシステム — ブラウザを開くだけで24時間自動運用">
+<meta name="robots" content="noindex">
+<style>
+/* ═══════════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════════ */
+:root {
+  --bg-from: #0a1628;
+  --bg-to:   #0f2040;
+  --accent:  #c8a96e;
+  --accent2: #e8d5a3;
+  --text-primary:   #f5f0e8;
+  --text-secondary: rgba(245,240,232,0.45);
+  --text-tertiary:  rgba(245,240,232,0.25);
+  --card-bg:     rgba(245,240,232,0.04);
+  --card-border: rgba(245,240,232,0.10);
+  --fade-dur: 4s;
+}
+
+/* ═══════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════ */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; }
+
+body {
+  font-family: 'Helvetica Neue', Arial, 'Hiragino Sans', sans-serif;
+  background: linear-gradient(155deg, var(--bg-from) 0%, var(--bg-to) 100%);
+  transition: background var(--fade-dur) ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════════
+   AMBIENT LAYER
+═══════════════════════════════════════════ */
+#ambient {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0;
+  transition: background 5s ease, opacity 5s ease;
+  animation: drift 22s ease-in-out infinite alternate;
+}
+#orb1 { width:600px; height:600px; top:-150px; left:-150px; animation-delay:0s; }
+#orb2 { width:500px; height:500px; bottom:-120px; right:-120px; animation-delay:-11s; }
+#orb3 { width:300px; height:300px; top:40%; left:40%; animation-delay:-5s; opacity:0; }
+
+@keyframes drift {
+  from { transform: translate(0,0) scale(1); }
+  to   { transform: translate(50px,-40px) scale(1.12); }
+}
+
+/* ═══════════════════════════════════════════
+   TIMELINE BAR（上部）
+═══════════════════════════════════════════ */
+.timeline {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 5;
+  display: flex;
+  height: 3px;
+}
+.tl-seg {
+  flex: 1;
+  height: 100%;
+  background: rgba(255,255,255,0.08);
+  transition: background 1.5s ease;
+  position: relative;
+}
+.tl-seg.active { background: var(--accent); }
+.tl-seg.past   { background: rgba(255,255,255,0.18); }
+
+/* ═══════════════════════════════════════════
+   HOTEL NAME（上部ロゴ）
+═══════════════════════════════════════════ */
+.hotel-header {
+  position: fixed;
+  top: 20px; left: 0; right: 0;
+  text-align: center;
+  z-index: 5;
+  pointer-events: none;
+}
+.hotel-name {
+  font-size: 11px;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+.hotel-sub {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+}
+
+/* ═══════════════════════════════════════════
+   MAIN CARD
+═══════════════════════════════════════════ */
+.card {
+  position: relative; z-index: 2;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 44px 52px 40px;
+  width: min(560px, 92vw);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+/* ── 時刻 ── */
+.clock-wrap {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.clock {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 64px;
+  font-weight: 300;
+  letter-spacing: 2px;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.clock-date {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+/* ── 時間帯バッジ ── */
+.period-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  border-radius: 100px;
+  border: 1px solid rgba(200,169,110,0.3);
+  background: rgba(200,169,110,0.08);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 28px;
+  transition: all 1.5s ease;
+}
+.period-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 2.5s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:0.35; transform:scale(0.65); }
+}
+
+/* ── 区切り ── */
+.divider {
+  width: 100%; height: 1px;
+  background: var(--card-border);
+  margin: 24px 0;
+}
+
+/* ── トラック情報 ── */
+.now-playing-eyebrow {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+.track-name {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  min-height: 28px;
+  transition: opacity 0.6s;
+}
+.track-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: 'Courier New', monospace;
+  min-height: 18px;
+  letter-spacing: 0.5px;
+}
+
+/* ── ボリューム / クロスフェード ── */
+.vol-section { margin-top: 22px; }
+.vol-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.vol-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  width: 64px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.vol-track {
+  flex: 1;
+  height: 2px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.vol-fill {
+  height: 100%;
+  border-radius: 1px;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.25s linear, background 2s ease;
+}
+.vol-val {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  width: 32px;
+  font-family: 'Courier New', monospace;
+}
+
+/* ── スタータス行 ── */
+.status-row {
+  margin-top: 20px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.chip {
+  font-size: 10px;
+  padding: 4px 12px;
+  border-radius: 100px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-tertiary);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  transition: all 0.4s;
+}
+.chip.on {
+  background: rgba(200,169,110,0.15);
+  color: var(--accent);
+  border-color: rgba(200,169,110,0.3);
+}
+.chip.warn {
+  background: rgba(200,80,80,0.15);
+  color: #e08080;
+  border-color: rgba(200,80,80,0.3);
+}
+
+/* ── 手動オーバーライド ── */
+.override-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--card-border);
+}
+.override-label {
+  font-size: 10px;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+.override-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.override-btn {
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: rgba(255,255,255,0.03);
+  color: var(--text-secondary);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1.5;
+  text-align: center;
+}
+.override-btn:hover {
+  background: rgba(200,169,110,0.12);
+  border-color: rgba(200,169,110,0.35);
+  color: var(--accent);
+}
+.override-btn.current-period {
+  background: rgba(200,169,110,0.18);
+  border-color: rgba(200,169,110,0.5);
+  color: var(--accent2);
+}
+.override-time {
+  display: block;
+  font-size: 8px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  letter-spacing: 1px;
+}
+
+/* ═══════════════════════════════════════════
+   SETTINGS PANEL
+═══════════════════════════════════════════ */
+.settings-btn {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  z-index: 10;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  color: var(--text-tertiary);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.2s, border-color 0.2s;
+}
+.settings-btn:hover { color: var(--text-primary); border-color: var(--card-border); }
+
+.settings-panel {
+  position: fixed;
+  bottom: 72px; right: 24px;
+  z-index: 10;
+  background: #0e1e35;
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 22px 24px;
+  width: 340px;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: none;
+  backdrop-filter: blur(20px);
+}
+.settings-panel.open { display: block; }
+.settings-panel h3 {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.file-row-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  width: 80px;
+  flex-shrink: 0;
+  letter-spacing: 1px;
+  line-height: 1.4;
+}
+.file-row input[type="file"] {
+  flex: 1;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.file-row input[type="file"]::file-selector-button {
+  background: rgba(200,169,110,0.25);
+  border: none;
+  color: var(--accent);
+  font-size: 10px;
+  border-radius: 5px;
+  padding: 3px 8px;
+  cursor: pointer;
+  margin-right: 6px;
+}
+.file-saved-tag {
+  font-size: 9px;
+  color: #6db86d;
+  letter-spacing: 1px;
+  margin-left: 2px;
+  display: none;
+}
+.file-saved-tag.visible { display: inline; }
+.settings-divider {
+  height: 1px;
+  background: var(--card-border);
+  margin: 14px 0;
+}
+.settings-note {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  line-height: 1.7;
+  letter-spacing: 0.3px;
+}
+.settings-note em { color: var(--accent); font-style: normal; }
+.clear-btn {
+  margin-top: 12px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(200,80,80,0.3);
+  background: rgba(200,80,80,0.08);
+  color: #e08080;
+  font-size: 10px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+.clear-btn:hover { background: rgba(200,80,80,0.18); }
+
+/* ═══════════════════════════════════════════
+   START OVERLAY
+═══════════════════════════════════════════ */
+#overlay {
+  position: fixed; inset: 0;
+  z-index: 100;
+  background: #07111e;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  transition: opacity 1s ease;
+}
+#overlay.hidden { opacity: 0; pointer-events: none; }
+
+.overlay-hotel {
+  font-size: 10px;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: rgba(200,169,110,0.5);
+  margin-bottom: 32px;
+}
+.overlay-title {
+  font-size: 22px;
+  font-weight: 300;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.overlay-sub {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+  margin-bottom: 40px;
+  text-align: center;
+  line-height: 1.8;
+}
+.overlay-note {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-bottom: 28px;
+  text-align: center;
+  line-height: 1.7;
+  max-width: 320px;
+}
+#startBtn {
+  padding: 14px 48px;
+  border-radius: 100px;
+  border: 1px solid rgba(200,169,110,0.5);
+  background: rgba(200,169,110,0.12);
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.25s;
+}
+#startBtn:hover {
+  background: rgba(200,169,110,0.25);
+  border-color: rgba(200,169,110,0.8);
+}
+
+/* ── トースト通知 ── */
+.toast {
+  position: fixed;
+  top: 40px; left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  z-index: 50;
+  background: rgba(14, 30, 53, 0.95);
+  border: 1px solid var(--card-border);
+  border-radius: 100px;
+  padding: 10px 24px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.4s, transform 0.4s;
+  pointer-events: none;
+  backdrop-filter: blur(12px);
+  white-space: nowrap;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── override中インジケーター ── */
+.manual-banner {
+  position: fixed;
+  top: 12px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  background: rgba(200,169,110,0.15);
+  border: 1px solid rgba(200,169,110,0.3);
+  border-radius: 100px;
+  padding: 5px 18px;
+  font-size: 9px;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: none;
+}
+.manual-banner.visible { display: block; }
+
+/* ═══════════════════════════════════════════
+   TIPS PANEL（運用ガイダンス）
+═══════════════════════════════════════════ */
+.tips-panel {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 10;
+  width: 260px;
+}
+.tips-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.tips-toggle-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.tips-toggle-label {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+.tips-body {
+  display: none;
+  margin-bottom: 8px;
+  background: rgba(10,22,40,0.92);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.tips-body.open { display: block; }
+.tips-title {
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.tips-item {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: flex-start;
+}
+.tips-item:last-child { margin-bottom: 0; }
+.tips-num {
+  font-size: 9px;
+  font-family: 'Courier New', monospace;
+  color: var(--accent);
+  opacity: 0.7;
+  flex-shrink: 0;
+  margin-top: 1px;
+  width: 14px;
+}
+.tips-text {
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  letter-spacing: 0.3px;
+}
+.tips-text em {
+  color: var(--text-primary);
+  font-style: normal;
+}
+.tips-divider {
+  height: 1px;
+  background: var(--card-border);
+  margin: 10px 0;
+}
+.tips-warn {
+  font-size: 9px;
+  color: rgba(224,128,128,0.7);
+  line-height: 1.6;
+  letter-spacing: 0.3px;
+}
+
+@media (max-width: 480px) {
+  .card { padding: 32px 24px 28px; }
+  .clock { font-size: 48px; }
+  .override-grid { grid-template-columns: repeat(2, 1fr); }
+  .settings-panel { width: calc(100vw - 48px); right: 24px; }
+  .tips-panel { width: calc(100vw - 48px); }
+}
+</style>
+</head>
+<body>
+
+<!-- 環境光 -->
+<div id="ambient">
+  <div class="orb" id="orb1"></div>
+  <div class="orb" id="orb2"></div>
+  <div class="orb" id="orb3"></div>
+</div>
+
+<!-- タイムラインバー -->
+<div class="timeline" id="timeline">
+  <div class="tl-seg" data-idx="0"></div>
+  <div class="tl-seg" data-idx="1"></div>
+  <div class="tl-seg" data-idx="2"></div>
+  <div class="tl-seg" data-idx="3"></div>
+  <div class="tl-seg" data-idx="4"></div>
+  <div class="tl-seg" data-idx="5"></div>
+</div>
+
+<!-- ホテル名 -->
+<div class="hotel-header">
+  <div class="hotel-name">Reyser Suite Kamakura</div>
+  <div class="hotel-sub">BGM Automation System</div>
+</div>
+
+<!-- 手動オーバーライドバナー -->
+<div class="manual-banner" id="manualBanner">Manual Override Active</div>
+
+<!-- トースト -->
+<div class="toast" id="toast"></div>
+
+<!-- START オーバーレイ -->
+<div id="overlay">
+  <div class="overlay-hotel">Reyser Suite Kamakura</div>
+  <div class="overlay-title">BGM System</div>
+  <div class="overlay-sub">
+    自動音響管理システム<br>
+    <span style="font-size:10px;letter-spacing:1px;color:rgba(245,240,232,0.3);">Acoustic Automation v2.0</span>
+  </div>
+  <div class="overlay-note" id="overlayNote">
+    前回保存されたBGMファイルを確認しています…
+  </div>
+  <button id="startBtn">▶ &nbsp; 再生開始</button>
+</div>
+
+<!-- ── メインカード ── -->
+<div class="card">
+
+  <div style="text-align:center;">
+    <div class="clock-wrap">
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+    <div class="clock-date" id="clockDate">—</div>
+    <div class="period-badge" id="periodBadge">
+      <span class="period-dot" id="periodDot"></span>
+      <span id="periodLabel">—</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="now-playing-eyebrow">Now Playing</div>
+  <div class="track-name" id="trackName">—</div>
+  <div class="track-meta" id="trackMeta">ファイル未設定</div>
+
+  <div class="vol-section">
+    <div class="vol-row">
+      <div class="vol-label">Channel A</div>
+      <div class="vol-track"><div class="vol-fill" id="volFillA"></div></div>
+      <div class="vol-val" id="volValA">0%</div>
+    </div>
+    <div class="vol-row">
+      <div class="vol-label">Channel B</div>
+      <div class="vol-track"><div class="vol-fill" id="volFillB"></div></div>
+      <div class="vol-val" id="volValB">0%</div>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <div class="chip" id="chipState">STANDBY</div>
+    <div class="chip" id="chipXfade">—</div>
+    <div class="chip on" id="chipLoop">LOOP</div>
+    <div class="chip" id="chipDB">INDEXEDDB</div>
+  </div>
+
+  <!-- 手動オーバーライド -->
+  <div class="override-section">
+    <div class="override-label">Manual Override — スタッフ切替</div>
+    <div class="override-grid" id="overrideGrid"></div>
+  </div>
+
+</div>
+
+<!-- 運用ガイダンス Tips -->
+<div class="tips-panel" id="tipsPanel">
+  <div class="tips-body" id="tipsBody">
+    <div class="tips-title">ご利用ガイド — Staff Guide</div>
+    <div class="tips-item">
+      <div class="tips-num">01</div>
+      <div class="tips-text">このURLを<em>ブラウザのお気に入り</em>に登録してください。次回から1タップで起動できます。</div>
+    </div>
+    <div class="tips-item">
+      <div class="tips-num">02</div>
+      <div class="tips-text">起動後は<em>「再生開始」を押すだけ</em>で、時刻に合わせたBGMが24時間自動で流れ続けます。</div>
+    </div>
+    <div class="tips-item">
+      <div class="tips-num">03</div>
+      <div class="tips-text">BGMを変えたいときは右下の<em>⚙ボタン</em>からファイルを設定。次回以降は自動で復元されます。</div>
+    </div>
+    <div class="tips-item">
+      <div class="tips-num">04</div>
+      <div class="tips-text">画面下部の<em>時間帯ボタン</em>を押すと、いつでも手動で切り替えられます（1時間後に自動復帰）。</div>
+    </div>
+    <div class="tips-divider"></div>
+    <div class="tips-warn">
+      ⚠ BGMファイルはこの端末のブラウザ内に保存されます。別の端末・別のブラウザでは再設定が必要です。
+    </div>
+  </div>
+  <button class="tips-toggle" id="tipsToggle">
+    <span class="tips-toggle-dot"></span>
+    <span class="tips-toggle-label" id="tipsToggleLabel">使い方を見る</span>
+  </button>
+</div>
+
+<!-- 設定ボタン -->
+<button class="settings-btn" id="settingsBtn" title="BGMファイル設定">⚙</button>
+
+<div class="settings-panel" id="settingsPanel">
+  <h3>BGM ファイル設定</h3>
+  <div id="fileInputs"></div>
+  <div class="settings-divider"></div>
+  <div class="settings-note">
+    選択したファイルは <em>IndexedDB</em> にブラウザ内保存されます。<br>
+    停電・リロード後も自動で復元・再生されます。<br>
+    対応フォーマット：MP3 / WAV / OGG / AAC / M4A<br><br>
+    <span style="color:rgba(224,128,128,0.65);">
+    ⚠ ファイルはこの端末・このブラウザにのみ保存されます。<br>
+    別の端末やブラウザでは再設定が必要です。<br>
+    「シークレットモード」では保存されません。
+    </span>
+  </div>
+  <button class="clear-btn" id="clearDbBtn">⚠ 保存データをすべて消去</button>
+</div>
+
+<!-- Audio Elements (2ch for crossfade) -->
+<audio id="audioChA" loop></audio>
+<audio id="audioChB" loop></audio>
+
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════════════════
+   PERIOD DEFINITIONS
+═══════════════════════════════════════════════════════ */
+const PERIODS = [
+  {
+    key: 'early-morning',
+    label: 'Early Morning',
+    sublabel: '早朝',
+    startH: 6, endH: 9,
+    trackLabel: '早朝のBGM — Track 1',
+    theme: {
+      bgFrom: '#1a1000', bgTo: '#2e1e00',
+      accent: '#c8844a',
+      orb1: '#7a4010', orb2: '#c8844a', orb3: '#ff9930',
+      orbOp: 0.15
+    }
+  },
+  {
+    key: 'late-morning',
+    label: 'Late Morning',
+    sublabel: '午前',
+    startH: 9, endH: 12,
+    trackLabel: '午前のBGM — Track 2',
+    theme: {
+      bgFrom: '#001428', bgTo: '#002244',
+      accent: '#6aace0',
+      orb1: '#2060a0', orb2: '#6aace0', orb3: '#a0d0ff',
+      orbOp: 0.14
+    }
+  },
+  {
+    key: 'afternoon',
+    label: 'Afternoon',
+    sublabel: '午後',
+    startH: 12, endH: 15,
+    trackLabel: '午後のBGM — Track 3',
+    theme: {
+      bgFrom: '#001830', bgTo: '#003050',
+      accent: '#58c8b0',
+      orb1: '#006850', orb2: '#58c8b0', orb3: '#a0ffe8',
+      orbOp: 0.13
+    }
+  },
+  {
+    key: 'sunset',
+    label: 'Sunset',
+    sublabel: '夕方',
+    startH: 15, endH: 18,
+    trackLabel: '夕方のBGM — Track 4',
+    theme: {
+      bgFrom: '#1a0800', bgTo: '#3a1400',
+      accent: '#e8844a',
+      orb1: '#803000', orb2: '#e8844a', orb3: '#ffb060',
+      orbOp: 0.16
+    }
+  },
+  {
+    key: 'night',
+    label: 'Night',
+    sublabel: '夜',
+    startH: 18, endH: 23,
+    trackLabel: '夜のBGM — Track 5',
+    theme: {
+      bgFrom: '#0a1628', bgTo: '#0f2040',
+      accent: '#c8a96e',
+      orb1: '#302050', orb2: '#c8a96e', orb3: '#8060b0',
+      orbOp: 0.14
+    }
+  },
+  {
+    key: 'midnight',
+    label: 'Midnight',
+    sublabel: '深夜',
+    startH: 23, endH: 6,
+    trackLabel: '深夜のBGM — Track 6',
+    theme: {
+      bgFrom: '#050a14', bgTo: '#080f1e',
+      accent: '#5870a0',
+      orb1: '#101828', orb2: '#5870a0', orb3: '#203050',
+      orbOp: 0.10
+    }
+  }
+];
+
+/* ═══════════════════════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════════════════════ */
+const CROSSFADE_MS   = 4000;   // クロスフェード時間
+const CROSSFADE_STEP = 80;     // ms/ステップ
+const CHECK_MS       = 5000;   // 時間帯チェック間隔
+const DB_NAME        = 'HotelBGMv2';
+const DB_STORE       = 'tracks';
+const MANUAL_RESUME_MS = 60 * 60 * 1000; // 手動override後、1時間で自動復帰
+
+/* ═══════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════ */
+let db = null;
+let isStarted      = false;
+let activePeriodIdx = -1;   // 現在再生中の時間帯インデックス
+let manualOverride  = false;
+let manualResumeTimer = null;
+
+// 2chクロスフェード管理
+let chActive = 0;  // 0 = audioChA, 1 = audioChB
+const audioEls = [
+  document.getElementById('audioChA'),
+  document.getElementById('audioChB')
+];
+
+// ファイルBlob（メモリキャッシュ）
+const trackBlobs = new Array(6).fill(null);
+// ObjectURL キャッシュ
+const trackURLs  = new Array(6).fill(null);
+
+let xfadeTimer = null;
+
+/* ═══════════════════════════════════════════════════════
+   INDEXEDDB
+═══════════════════════════════════════════════════════ */
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbPut(key, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).put(value, key);
+    tx.oncomplete = resolve;
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+function dbGet(key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readonly');
+    const req = tx.objectStore(DB_STORE).get(key);
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbDelete(key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).delete(key);
+    tx.oncomplete = resolve;
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+async function dbClearAll() {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).clear();
+    tx.oncomplete = resolve;
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   PERIOD HELPERS
+═══════════════════════════════════════════════════════ */
+function getPeriodIdx(hour) {
+  for (let i = 0; i < PERIODS.length; i++) {
+    const p = PERIODS[i];
+    if (p.startH < p.endH) {
+      if (hour >= p.startH && hour < p.endH) return i;
+    } else {
+      // midnight: 23〜翌6
+      if (hour >= p.startH || hour < p.endH) return i;
+    }
+  }
+  return 4; // fallback: night
+}
+
+/* ═══════════════════════════════════════════════════════
+   THEME
+═══════════════════════════════════════════════════════ */
+function applyTheme(idx) {
+  const t = PERIODS[idx].theme;
+  const r = document.documentElement;
+  r.style.setProperty('--bg-from', t.bgFrom);
+  r.style.setProperty('--bg-to',   t.bgTo);
+  r.style.setProperty('--accent',  t.accent);
+  r.style.setProperty('--accent2', lighten(t.accent, 30));
+
+  document.getElementById('orb1').style.background = t.orb1;
+  document.getElementById('orb2').style.background = t.orb2;
+  document.getElementById('orb3').style.background = t.orb3;
+  document.getElementById('orb1').style.opacity = t.orbOp;
+  document.getElementById('orb2').style.opacity = t.orbOp;
+  document.getElementById('orb3').style.opacity = t.orbOp * 0.6;
+
+  // vol bar color
+  document.querySelectorAll('.vol-fill').forEach(el => {
+    el.style.background = t.accent;
+  });
+  document.getElementById('periodDot').style.background = t.accent;
+}
+
+function lighten(hex, amt) {
+  let c = parseInt(hex.slice(1), 16);
+  let r = Math.min(255, (c >> 16) + amt);
+  let g = Math.min(255, ((c >> 8) & 0xff) + amt);
+  let b = Math.min(255, (c & 0xff) + amt);
+  return '#' + ((r<<16)|(g<<8)|b).toString(16).padStart(6,'0');
+}
+
+/* ═══════════════════════════════════════════════════════
+   TIMELINE BAR
+═══════════════════════════════════════════════════════ */
+function updateTimeline(currentIdx) {
+  document.querySelectorAll('.tl-seg').forEach((seg, i) => {
+    seg.classList.remove('active','past');
+    if (i === currentIdx) seg.classList.add('active');
+    else if (i < currentIdx) seg.classList.add('past');
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   CLOCK
+═══════════════════════════════════════════════════════ */
+const DAYS_JA = ['日','月','火','水','木','金','土'];
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const s = String(now.getSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent = `${h}:${m}:${s}`;
+
+  const mo = now.getMonth()+1;
+  const d  = now.getDate();
+  const wd = DAYS_JA[now.getDay()];
+  document.getElementById('clockDate').textContent =
+    `${now.getFullYear()}年 ${mo}月${d}日（${wd}）`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   VOLUME UI
+═══════════════════════════════════════════════════════ */
+function updateVolUI() {
+  const vA = audioEls[0].volume;
+  const vB = audioEls[1].volume;
+  const pA = Math.round(vA * 100);
+  const pB = Math.round(vB * 100);
+  document.getElementById('volFillA').style.width = pA + '%';
+  document.getElementById('volValA').textContent  = pA + '%';
+  document.getElementById('volFillB').style.width = pB + '%';
+  document.getElementById('volValB').textContent  = pB + '%';
+}
+
+/* ═══════════════════════════════════════════════════════
+   CROSSFADE ENGINE
+═══════════════════════════════════════════════════════ */
+function crossfadeTo(idx, onDone) {
+  if (!isStarted) return;
+
+  const period  = PERIODS[idx];
+  const nextCh  = 1 - chActive;
+  const curAudio = audioEls[chActive];
+  const nxtAudio = audioEls[nextCh];
+
+  // URLを設定
+  const url = trackURLs[idx];
+  if (!url) {
+    // ファイル未設定: フェードアウトのみ
+    setChip('chipState', 'NO FILE', 'warn');
+    fadeOutAudio(curAudio, () => {
+      if (onDone) onDone();
+    });
+    updatePeriodUI(idx);
+    return;
+  }
+
+  // 次チャンネルにURLをセット（変わっている場合のみ）
+  if (nxtAudio.src !== url) {
+    nxtAudio.src = url;
+    nxtAudio.load();
+  }
+  nxtAudio.volume = 0;
+  nxtAudio.loop = true;
+
+  nxtAudio.play().then(() => {
+    setChip('chipXfade', 'CROSSFADE', 'on');
+    setChip('chipState', 'PLAYING', 'on');
+
+    const steps  = CROSSFADE_MS / CROSSFADE_STEP;
+    const dVol   = 1 / steps;
+    const startVol = curAudio.paused ? 0 : curAudio.volume;
+
+    clearInterval(xfadeTimer);
+    xfadeTimer = setInterval(() => {
+      // フェードイン
+      nxtAudio.volume = Math.min(1, nxtAudio.volume + dVol);
+      // フェードアウト
+      if (!curAudio.paused) {
+        curAudio.volume = Math.max(0, curAudio.volume - (startVol / steps));
+      }
+      updateVolUI();
+
+      if (nxtAudio.volume >= 1) {
+        clearInterval(xfadeTimer);
+        curAudio.pause();
+        curAudio.volume = 0;
+        nxtAudio.volume = 1;
+        chActive = nextCh;
+        setChip('chipXfade', '—');
+        updateVolUI();
+        if (onDone) onDone();
+      }
+    }, CROSSFADE_STEP);
+
+    updatePeriodUI(idx);
+
+  }).catch(err => {
+    console.warn('Playback error:', err);
+    setChip('chipState', 'ERROR', 'warn');
+  });
+}
+
+function fadeOutAudio(audio, cb) {
+  if (!audio || audio.paused) { if(cb) cb(); return; }
+  const steps = (CROSSFADE_MS / 2) / CROSSFADE_STEP;
+  const dVol  = audio.volume / steps;
+  clearInterval(xfadeTimer);
+  xfadeTimer = setInterval(() => {
+    audio.volume = Math.max(0, audio.volume - dVol);
+    updateVolUI();
+    if (audio.volume <= 0) {
+      clearInterval(xfadeTimer);
+      audio.pause();
+      if (cb) cb();
+    }
+  }, CROSSFADE_STEP);
+}
+
+/* ═══════════════════════════════════════════════════════
+   PERIOD UI UPDATE
+═══════════════════════════════════════════════════════ */
+function updatePeriodUI(idx) {
+  const p = PERIODS[idx];
+  document.getElementById('periodLabel').textContent = `${p.label}　${p.sublabel}`;
+  document.getElementById('trackName').textContent   = p.trackLabel;
+  document.getElementById('trackMeta').textContent   =
+    trackBlobs[idx] ? trackBlobs[idx].name : 'ファイル未設定';
+  applyTheme(idx);
+  updateTimeline(idx);
+  updateOverrideButtons(idx);
+}
+
+/* ═══════════════════════════════════════════════════════
+   PERIOD SWITCH LOGIC
+═══════════════════════════════════════════════════════ */
+function switchToPeriod(idx, isManual = false) {
+  if (idx === activePeriodIdx && !isManual) return;
+  activePeriodIdx = idx;
+
+  crossfadeTo(idx);
+
+  if (isManual) {
+    manualOverride = true;
+    document.getElementById('manualBanner').classList.add('visible');
+    clearTimeout(manualResumeTimer);
+    manualResumeTimer = setTimeout(() => {
+      manualOverride = false;
+      document.getElementById('manualBanner').classList.remove('visible');
+      showToast('自動モードに復帰しました');
+      const autoIdx = getPeriodIdx(new Date().getHours());
+      if (autoIdx !== activePeriodIdx) switchToPeriod(autoIdx);
+    }, MANUAL_RESUME_MS);
+  }
+}
+
+function checkPeriod() {
+  if (!isStarted || manualOverride) return;
+  const idx = getPeriodIdx(new Date().getHours());
+  switchToPeriod(idx);
+}
+
+/* ═══════════════════════════════════════════════════════
+   OVERRIDE BUTTONS
+═══════════════════════════════════════════════════════ */
+function buildOverrideButtons() {
+  const grid = document.getElementById('overrideGrid');
+  grid.innerHTML = '';
+  PERIODS.forEach((p, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'override-btn';
+    btn.dataset.idx = i;
+    const endLabel = p.endH < p.startH ? `翌${String(p.endH).padStart(2,'0')}:00` : `${String(p.endH).padStart(2,'0')}:00`;
+    btn.innerHTML = `${p.label}<br><span class="override-time">${String(p.startH).padStart(2,'0')}:00 – ${endLabel}</span>`;
+    btn.addEventListener('click', () => {
+      switchToPeriod(i, true);
+      showToast(`${p.label} に切り替えました`);
+    });
+    grid.appendChild(btn);
+  });
+}
+
+function updateOverrideButtons(activeIdx) {
+  document.querySelectorAll('.override-btn').forEach((btn, i) => {
+    btn.classList.toggle('current-period', i === activeIdx);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   FILE INPUTS（設定パネル）
+═══════════════════════════════════════════════════════ */
+function buildFileInputs() {
+  const container = document.getElementById('fileInputs');
+  container.innerHTML = '';
+  PERIODS.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'file-row';
+
+    const lbl = document.createElement('div');
+    lbl.className = 'file-row-label';
+    lbl.style.color = p.theme.accent;
+    lbl.innerHTML = `Track ${i+1}<br><span style="font-size:9px;color:var(--text-tertiary)">${p.label}</span>`;
+
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'audio/*';
+    inp.id = `file_${i}`;
+
+    const savedTag = document.createElement('span');
+    savedTag.className = 'file-saved-tag';
+    savedTag.id = `saved_${i}`;
+    savedTag.textContent = '✓ 保存済';
+
+    inp.addEventListener('change', async function() {
+      const file = this.files[0];
+      if (!file) return;
+      await saveTrack(i, file);
+      loadTrackFromBlob(i, file);
+      showToast(`Track ${i+1} を保存しました`);
+    });
+
+    row.appendChild(lbl);
+    row.appendChild(inp);
+    row.appendChild(savedTag);
+    container.appendChild(row);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   TRACK LOADING
+═══════════════════════════════════════════════════════ */
+async function saveTrack(idx, file) {
+  // Blobとして保存（ファイル名もメタとして保存）
+  await dbPut(`track_${idx}`, file);
+  await dbPut(`track_${idx}_name`, file.name);
+}
+
+function loadTrackFromBlob(idx, file) {
+  // 古いObjectURLを解放
+  if (trackURLs[idx]) URL.revokeObjectURL(trackURLs[idx]);
+  trackBlobs[idx] = file;
+  trackURLs[idx]  = URL.createObjectURL(file);
+
+  // 保存済みタグ表示
+  const tag = document.getElementById(`saved_${idx}`);
+  if (tag) tag.classList.add('visible');
+
+  // 現在再生中のトラックなら今すぐ切り替え
+  if (isStarted && idx === activePeriodIdx) {
+    crossfadeTo(idx, null);
+    document.getElementById('trackMeta').textContent = file.name;
+  }
+}
+
+async function loadAllTracksFromDB() {
+  let anyLoaded = false;
+  for (let i = 0; i < 6; i++) {
+    try {
+      const blob = await dbGet(`track_${i}`);
+      const name = await dbGet(`track_${i}_name`);
+      if (blob) {
+        const namedFile = new File([blob], name || `track_${i+1}.mp3`, { type: blob.type });
+        loadTrackFromBlob(i, namedFile);
+        anyLoaded = true;
+      }
+    } catch(e) {
+      console.warn(`Track ${i} load error:`, e);
+    }
+  }
+  return anyLoaded;
+}
+
+/* ═══════════════════════════════════════════════════════
+   CHIP / UI HELPERS
+═══════════════════════════════════════════════════════ */
+function setChip(id, text, cls = '') {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = 'chip' + (cls ? ` ${cls}` : '');
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+/* ═══════════════════════════════════════════════════════
+   DB STATUS CHIP
+═══════════════════════════════════════════════════════ */
+function updateDBChip() {
+  const anyFile = trackBlobs.some(b => b !== null);
+  setChip('chipDB', anyFile ? 'DB LOADED' : 'DB EMPTY', anyFile ? 'on' : '');
+}
+
+/* ═══════════════════════════════════════════════════════
+   TIPS PANEL TOGGLE
+═══════════════════════════════════════════════════════ */
+document.getElementById('tipsToggle').addEventListener('click', () => {
+  const body  = document.getElementById('tipsBody');
+  const label = document.getElementById('tipsToggleLabel');
+  const isOpen = body.classList.toggle('open');
+  label.textContent = isOpen ? '閉じる' : '使い方を見る';
+});
+
+/* ═══════════════════════════════════════════════════════
+   SETTINGS PANEL TOGGLE
+═══════════════════════════════════════════════════════ */
+document.getElementById('settingsBtn').addEventListener('click', () => {
+  document.getElementById('settingsPanel').classList.toggle('open');
+});
+document.addEventListener('click', e => {
+  const panel = document.getElementById('settingsPanel');
+  const btn   = document.getElementById('settingsBtn');
+  if (!panel.contains(e.target) && e.target !== btn) {
+    panel.classList.remove('open');
+  }
+});
+
+document.getElementById('clearDbBtn').addEventListener('click', async () => {
+  if (!confirm('保存されたBGMデータをすべて削除しますか？')) return;
+  await dbClearAll();
+  for (let i = 0; i < 6; i++) {
+    if (trackURLs[i]) URL.revokeObjectURL(trackURLs[i]);
+    trackBlobs[i] = null;
+    trackURLs[i]  = null;
+    const tag = document.getElementById(`saved_${i}`);
+    if (tag) tag.classList.remove('visible');
+    const inp = document.getElementById(`file_${i}`);
+    if (inp) inp.value = '';
+  }
+  updateDBChip();
+  showToast('保存データを消去しました');
+});
+
+/* ═══════════════════════════════════════════════════════
+   START BUTTON
+═══════════════════════════════════════════════════════ */
+document.getElementById('startBtn').addEventListener('click', async () => {
+  isStarted = true;
+  const overlay = document.getElementById('overlay');
+  overlay.classList.add('hidden');
+  setTimeout(() => overlay.style.display = 'none', 1100);
+
+  updateDBChip();
+  const idx = getPeriodIdx(new Date().getHours());
+  activePeriodIdx = -1; // 強制切替
+  switchToPeriod(idx);
+  setInterval(checkPeriod, CHECK_MS);
+});
+
+/* ═══════════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════════ */
+async function init() {
+  // 時計スタート
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // UI構築
+  buildOverrideButtons();
+  buildFileInputs();
+
+  // 初期テーマ（オーバーレイ中も適用）
+  const initIdx = getPeriodIdx(new Date().getHours());
+  applyTheme(initIdx);
+  updateTimeline(initIdx);
+  document.getElementById('periodLabel').textContent =
+    `${PERIODS[initIdx].label}　${PERIODS[initIdx].sublabel}`;
+
+  // IndexedDB初期化
+  try {
+    db = await openDB();
+    setChip('chipDB', 'DB READY', 'on');
+
+    // DBからトラックをロード
+    document.getElementById('overlayNote').textContent = '保存されたBGMを読み込んでいます…';
+    const loaded = await loadAllTracksFromDB();
+    updateDBChip();
+
+    if (loaded) {
+      document.getElementById('overlayNote').textContent =
+        '前回のBGMファイルを復元しました。再生開始を押してください。';
+    } else {
+      document.getElementById('overlayNote').textContent =
+        'BGMファイルが未設定です。再生開始後、⚙から設定してください。';
+    }
+  } catch(e) {
+    console.error('IndexedDB error:', e);
+    setChip('chipDB', 'DB ERROR', 'warn');
+    document.getElementById('overlayNote').textContent =
+      '再生開始を押すと BGM システムが起動します。';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
